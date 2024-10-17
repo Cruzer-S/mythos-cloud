@@ -1,0 +1,9 @@
+makefile
+
+output/
+library/
+
+cscope.files
+cscope.out
+tags
+compile_commands.json
