@@ -5,6 +5,8 @@ output/
 library/
 certs/
 
+include/*/*
+
 cscope.files
 cscope.out
 tags
