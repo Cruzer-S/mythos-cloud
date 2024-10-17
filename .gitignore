@@ -1,7 +1,9 @@
 makefile
+.cache/
 
 output/
 library/
+certs/
 
 cscope.files
 cscope.out
