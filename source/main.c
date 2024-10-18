@@ -27,6 +27,8 @@ static void request(Session session)
 
 	if ( !strcmp(session->header.url, "/") )
 		request = "index.html";
+	else if ( !strcmp(session->header.url, "/favicon.ico") )
+		request = "favicon.png";
 	else
 		request = session->header.url;
 
