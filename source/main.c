@@ -36,7 +36,7 @@ static void request(Session session)
 	else if ( !strcmp(session->header.url, "/favicon.ico") )
 		request = "favicon.png";
 	else
-		request = session->header.url;
+		request = session->header.url + 1;
 
 	if (ws_send_file(session, request) == -1)
 		warn("[ID %d] failed to send file: %s",
