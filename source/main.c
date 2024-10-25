@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <signal.h>
 
 #include <unistd.h>
 
@@ -17,6 +18,11 @@
 #define errn(...) log(ERRN, __VA_ARGS__), exit(EXIT_FAILURE)
 
 static bool run_server;
+
+static void signal_handler(int signo)
+{
+	run_server = false;
+}
 
 static void request(Session session)
 {
@@ -71,6 +77,9 @@ int main(int argc, char *argv[])
 	
 	logger_initialize();
 
+	if (signal(SIGUSR1, signal_handler) == SIG_ERR)
+		errn("failed to signal()");
+
 	if (init_config(&config, argc, argv) == -1)
 		errn("failed to init_config()");
 
@@ -87,8 +96,12 @@ int main(int argc, char *argv[])
 	for (run_server = true; run_server; )
 		sleep(1);
 
+	info("server stopped");
+
 	web_server_stop(server);
 	web_server_destroy(server);
+	
+	info("cleanup done.");
 
 	logger_destroy();
 
