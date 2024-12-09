@@ -24,6 +24,45 @@ static void signal_handler(int signo)
 	run_server = false;
 }
 
+static void error(Session session)
+{
+	enum web_server_error ws_err = ws_get_session_error(session);
+	enum http_status_code ws_code = web_server_error_code(ws_err);
+	const char *reason;
+
+	struct cjson_value value;
+
+	if (ws_err == WS_ERROR_CLOSED) {
+		warn("[ID %d] error reason: closed; do nothing", session->id);
+		return ;
+	}
+
+	reason = http_status_code_string(ws_code);
+	warn("[ID %d] error reason: %d (%s)", session->id, ws_code, reason);
+
+	struct cjson_object *object = cjson_create_object("{}");
+	if (object == NULL) {
+		warn("failed to cjson_create_object()");
+		return ;
+	}
+
+	value.type = CJSON_VALUE_TYPE_NUMBER; value.n = ws_code;
+	if ( !cjson_add_in_object(object, "error_code", value) ) {
+		warn("failed to cjson_add_in_object()");
+		return ;
+	}
+
+	value.type = CJSON_VALUE_TYPE_STRING; value.s = (char *) reason;
+	if ( !cjson_add_in_object(object, "error_message", value) ) {
+		warn("failed to cjson_add_in_object()");
+		return ;
+	}
+
+	ws_render_template(session, ws_code, "error.html", object);
+
+	cjson_destroy_object(object);
+}
+
 static void request(Session session)
 {
 	char *request;
@@ -38,9 +77,19 @@ static void request(Session session)
 	else
 		request = session->header.url + 1;
 
-	if (ws_send_file(session, request) == -1)
-		warn("[ID %d] failed to send file: %s",
-       		     session->id, session->header.url);
+	switch (http_get_method(&session->header)) {
+	case HTTP_REQUEST_GET:
+		if (ws_render(session, HTTP_STATUS_CODE_OK, request) == -1) {
+			warn("[ID %d] failed to render file: %s",
+       		     	     session->id, request);
+
+			error(session);
+		}
+		break;
+
+	default:
+		break;
+	}
 }
 
 static void disconnect(Session session)
