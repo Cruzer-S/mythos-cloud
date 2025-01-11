@@ -24,21 +24,16 @@ static void signal_handler(int signo)
 	run_server = false;
 }
 
-static void error(Session session)
+static void render_error(Session session,
+			 enum web_server_error error,
+			 enum http_status_code code)
 {
-	enum web_server_error ws_err = ws_get_session_error(session);
-	enum http_status_code ws_code = web_server_error_code(ws_err);
 	const char *reason;
 
 	struct cjson_value value;
 
-	if (ws_err == WS_ERROR_CLOSED) {
-		warn("[ID %d] error reason: closed; do nothing", session->id);
-		return ;
-	}
-
-	reason = http_status_code_string(ws_code);
-	warn("[ID %d] error reason: %d (%s)", session->id, ws_code, reason);
+	reason = http_status_code_string(code);
+	warn("[ID %d] error reason: %d (%s)", session->id, code, reason);
 
 	struct cjson_object *object = cjson_create_object("{}");
 	if (object == NULL) {
@@ -46,7 +41,7 @@ static void error(Session session)
 		return ;
 	}
 
-	value.type = CJSON_VALUE_TYPE_NUMBER; value.n = ws_code;
+	value.type = CJSON_VALUE_TYPE_NUMBER; value.n = code;
 	if ( !cjson_add_in_object(object, "error_code", value) ) {
 		warn("failed to cjson_add_in_object()");
 		return ;
@@ -58,9 +53,22 @@ static void error(Session session)
 		return ;
 	}
 
-	ws_render_template(session, ws_code, "error.html", object);
+	ws_render_template(session, code, "error.ctml", object);
 
 	cjson_destroy_object(object);
+}
+
+static void error(Session session)
+{
+	enum web_server_error ws_err = ws_get_session_error(session);
+	enum http_status_code ws_code = web_server_error_code(ws_err);
+
+	if (ws_err == WS_ERROR_CLOSED) {
+		warn("[ID %d] error reason: closed; do nothing", session->id);
+		return ;
+	}
+
+	render_error(session, ws_err, ws_code);
 }
 
 static void request(Session session)
@@ -76,6 +84,15 @@ static void request(Session session)
 		request = "favicon.png";
 	else
 		request = session->header.url + 1;
+
+	if (strstr(session->header.url, ".ctml")) {
+		render_error(
+			session,
+			WS_ERROR_BAD_REQUEST,
+			HTTP_STATUS_CODE_BAD_REQUEST
+		);
+		return ;
+	}
 
 	switch (http_get_method(&session->header)) {
 	case HTTP_REQUEST_GET:
@@ -126,8 +143,11 @@ int main(int argc, char *argv[])
 	
 	logger_initialize();
 
-	if (signal(SIGUSR1, signal_handler) == SIG_ERR)
-		errn("failed to signal()");
+	sigset_t sigset;
+
+	sigemptyset(&sigset);
+	sigaddset(&sigset, SIGINT);
+	sigprocmask(SIG_BLOCK, &sigset, NULL);
 
 	if (init_config(&config, argc, argv) == -1)
 		errn("failed to init_config()");
