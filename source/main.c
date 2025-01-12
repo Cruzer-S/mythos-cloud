@@ -19,8 +19,9 @@
 
 static bool run_server;
 
-static void signal_handler(int signo)
+static void signal_handler(int signo, siginfo_t *info, void *args)
 {
+	info("signal raised");
 	run_server = false;
 }
 
@@ -136,6 +137,30 @@ static int init_config(struct web_server_config *config,
 	return 0;
 }
 
+static int mask_signal(void)
+{
+	struct sigaction action;
+	sigset_t mask;
+
+	action.sa_flags = 0;
+	action.sa_mask = mask;
+	action.sa_sigaction = signal_handler;
+	if (sigaction(SIGINT, &action, NULL) != 0)
+		return -1;
+
+	action.sa_flags = 0;
+	action.sa_handler = SIG_IGN;
+	if (sigaction(SIGPIPE, &action, NULL) != 0)
+		return -1;
+
+	sigfillset(&mask);
+	sigdelset(&mask, SIGINT);
+	if (pthread_sigmask(SIG_BLOCK, &mask, NULL) != 0)
+		return -1;
+
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	WebServer server;
@@ -143,14 +168,11 @@ int main(int argc, char *argv[])
 	
 	logger_initialize();
 
-	sigset_t sigset;
-
-	sigemptyset(&sigset);
-	sigaddset(&sigset, SIGINT);
-	sigprocmask(SIG_BLOCK, &sigset, NULL);
-
 	if (init_config(&config, argc, argv) == -1)
 		errn("failed to init_config()");
+
+	if (mask_signal() == -1)
+		errn("failed to mask_signal()");
 
 	server = web_server_create(&config);
 	if (server == NULL)
