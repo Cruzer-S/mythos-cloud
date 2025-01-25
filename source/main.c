@@ -6,10 +6,11 @@
 
 #include <unistd.h>
 
-#include "Cruzer-S/logger/logger.h"
-
 #include "Cruzer-S/web-server/web_server.h"
 #include "Cruzer-S/web-server/web_server_util.h"
+#include "Cruzer-S/net-util/net-util.h"
+
+#include "Cruzer-S/logger/logger.h"
 
 #define SERVER_NAME "mythos-cloud"
 
@@ -25,16 +26,21 @@ static void signal_handler(int signo, siginfo_t *info, void *args)
 	run_server = false;
 }
 
-static void render_error(Session session,
-			 enum web_server_error error,
-			 enum http_status_code code)
+static void render_error(Session session)
 {
 	const char *reason;
-
 	struct cjson_value value;
+	enum http_status_code code;
+
+	if (session->error == SESSION_ERROR_CLOSED) {
+		// nothing to do with it
+		return ;
+	}
+
+	code = session_errror_to_status_code[session->error];
 
 	reason = http_status_code_string(code);
-	warn("[ID %d] error reason: %d (%s)", session->id, code, reason);
+	warn("[ID %d] error reason: %d (%s)", session->fd, code, reason);
 
 	struct cjson_object *object = cjson_create_object("{}");
 	if (object == NULL) {
@@ -59,24 +65,11 @@ static void render_error(Session session,
 	cjson_destroy_object(object);
 }
 
-static void error(Session session)
-{
-	enum web_server_error ws_err = ws_get_session_error(session);
-	enum http_status_code ws_code = web_server_error_code(ws_err);
-
-	if (ws_err == WS_ERROR_CLOSED) {
-		warn("[ID %d] error reason: closed; do nothing", session->id);
-		return ;
-	}
-
-	render_error(session, ws_err, ws_code);
-}
-
 static void request(Session session)
 {
 	char *request;
 
-	info("[ID %d] request %s: %s", session->id,
+	info("[ID %d] request %s: %s", session->fd,
       	      session->header.method, session->header.url);
 
 	if ( !strcmp(session->header.url, "/") )
@@ -87,11 +80,7 @@ static void request(Session session)
 		request = session->header.url + 1;
 
 	if (strstr(session->header.url, ".ctml")) {
-		render_error(
-			session,
-			WS_ERROR_BAD_REQUEST,
-			HTTP_STATUS_CODE_BAD_REQUEST
-		);
+		render_error(session);
 		return ;
 	}
 
@@ -99,9 +88,9 @@ static void request(Session session)
 	case HTTP_REQUEST_GET:
 		if (ws_render(session, HTTP_STATUS_CODE_OK, request) == -1) {
 			warn("[ID %d] failed to render file: %s",
-       		     	     session->id, request);
+       		     	     session->fd, request);
 
-			error(session);
+			render_error(session);
 		}
 		break;
 
@@ -110,9 +99,14 @@ static void request(Session session)
 	}
 }
 
-static void disconnect(Session session)
+static void connect_session(Session session)
 {
-	info("[ID %d] session closed", session->id);
+	info("[ID %d] session opened", session->fd);
+}
+
+static void disconnect_session(Session session)
+{
+	info("[ID %d] session closed", session->fd);
 }
 
 static int init_config(struct web_server_config *config,
@@ -121,8 +115,12 @@ static int init_config(struct web_server_config *config,
 	if (argc != 6)
 		return -1;
 
-	if ( !strcmp(argv[1], "null") || !strcmp(argv[1], "NULL") )
-		argv[1] = NULL;
+	if ( !strcmp(argv[1], "null") || !strcmp(argv[1], "NULL") ) {
+		argv[1] = get_hostname(AF_INET);
+
+		if (argv[1] == NULL)
+			return -1;
+	}
 
 	config->hostname = argv[1];
 	config->service = argv[2];
@@ -133,6 +131,8 @@ static int init_config(struct web_server_config *config,
 	config->use_ssl = true;
 	config->cert_key = argv[4];
 	config->priv_key = argv[5];
+
+	config->nthread = 4;
 
 	return 0;
 }
@@ -178,11 +178,16 @@ int main(int argc, char *argv[])
 	if (server == NULL)
 		errn("failed to web_server_create()");
 
-	web_server_register_handler(server, request, disconnect);
+	web_server_register_handler(
+		server,
+		connect_session,
+		request,
+		disconnect_session
+	);
 
 	info("server running at %s:%s", config.hostname, config.service);
 	if (web_server_start(server) == -1)
-		exit(1);
+		errn("failed to web_server_start()");
 
 	for (run_server = true; run_server; )
 		sleep(1);
