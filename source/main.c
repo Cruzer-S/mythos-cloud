@@ -7,7 +7,8 @@
 #include <unistd.h>
 
 #include "Cruzer-S/web-server/web_server.h"
-#include "Cruzer-S/web-server/web_server_util.h"
+#include "Cruzer-S/web-server/session.h"
+
 #include "Cruzer-S/net-util/net-util.h"
 
 #include "Cruzer-S/logger/logger.h"
@@ -60,13 +61,14 @@ static void render_error(Session session)
 		return ;
 	}
 
-	ws_render_template(session, code, "error.ctml", object);
+	session_render_template(session, code, "error.ctml", object);
 
 	cjson_destroy_object(object);
 }
 
 static void request(Session session)
 {
+	int retval;
 	char *request;
 
 	info("[ID %d] request %s: %s", session->fd,
@@ -86,7 +88,8 @@ static void request(Session session)
 
 	switch (http_get_method(&session->header)) {
 	case HTTP_REQUEST_GET:
-		if (ws_render(session, HTTP_STATUS_CODE_OK, request) == -1) {
+		retval = session_render(session, HTTP_STATUS_CODE_OK, request);
+		if (retval == -1) {
 			warn("[ID %d] failed to render file: %s",
        		     	     session->fd, request);
 
