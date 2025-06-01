@@ -13,6 +13,8 @@
 
 #include "Cruzer-S/logger/logger.h"
 
+#include "Cruzer-S/linux-lib/file.h"
+
 #define SERVER_NAME "mythos-cloud"
 
 #define info(...) log(INFO, __VA_ARGS__)
@@ -66,6 +68,45 @@ static void render_error(Session session)
 	cjson_destroy_object(object);
 }
 
+int render_pages(Session session, char *request)
+{
+	WebServerConfig config;
+
+	struct cjson_object *cjson;
+	struct cjson_value value;
+
+	char filepath[PATH_MAX];
+	int retval;
+ 
+	config = web_server_get_config(session->client->server);
+
+	snprintf(filepath, PATH_MAX - 1, "%s/%s", config->basedir, request);
+	value.s = get_file_time(
+		filepath, FILE_TIME_TYPE_MODIFIED, TIMESTAMP_FORMAT_WIKIPEDIA
+	);
+	if (value.s == NULL)
+		return -1;
+	value.type = CJSON_VALUE_TYPE_STRING;
+
+	cjson = cjson_create_object("{}");
+	if (cjson == NULL)
+		return -1;
+
+	if ( !strcmp(request, "index.ctml") ) {
+		if ( !cjson_add_in_object(cjson, "mtime", value) ) {
+			return -1;
+		}
+	}
+
+	retval = session_render_template(
+		session, HTTP_STATUS_CODE_OK, request, cjson
+	);
+
+	cjson_destroy_object(cjson);
+
+	return retval;
+}
+
 static void request(Session session)
 {
 	int retval;
@@ -74,26 +115,38 @@ static void request(Session session)
 	info("[ID %d] request %s: %s", session->fd,
       	      session->header.method, session->header.url);
 
-	if ( !strcmp(session->header.url, "/") )
-		request = "index.html";
-	else if ( !strcmp(session->header.url, "/favicon.ico") )
-		request = "favicon.png";
-	else
-		request = session->header.url + 1;
-
 	if (strstr(session->header.url, ".ctml")) {
 		render_error(session);
 		return ;
 	}
 
+	if ( !strcmp(session->header.url, "/") ) {	
+		request = "index.ctml";
+	} else if ( !strcmp(session->header.url, "/favicon.ico") ) {
+		request = "favicon.png";
+	} else {
+		request = session->header.url + 1;
+	}
+
 	switch (http_get_method(&session->header)) {
 	case HTTP_REQUEST_GET:
-		retval = session_render(session, HTTP_STATUS_CODE_OK, request);
-		if (retval == -1) {
-			warn("[ID %d] failed to render file: %s",
-       		     	     session->fd, request);
+		if (strstr(request, ".ctml")) {
+			retval = render_pages(session, request);
+			if (retval == -1) {
+				session->error = SESSION_ERROR_INTERNAL;
+				warn("[ID %d] failed to render file: %s",
+				     session->fd, request);
 
-			render_error(session);
+				render_error(session);
+			}
+		} else {
+			retval = session_render(session, HTTP_STATUS_CODE_OK, request);
+			if (retval == -1) {
+				warn("[ID %d] failed to render file: %s",
+				     session->fd, request);
+
+				render_error(session);
+			}
 		}
 		break;
 
