@@ -94,6 +94,7 @@ int render_pages(Session session, char *request)
 
 	if ( !strcmp(request, "index.ctml") ) {
 		if ( !cjson_add_in_object(cjson, "mtime", value) ) {
+			cjson_destroy_object(cjson);
 			return -1;
 		}
 	}
