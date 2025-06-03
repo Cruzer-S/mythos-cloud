@@ -48,24 +48,24 @@ static void render_error(Session session)
 	struct cjson_object *object = cjson_create_object("{}");
 	if (object == NULL) {
 		warn("failed to cjson_create_object()");
-		return ;
+		goto DESTROY_OBJECT;
 	}
 
 	value.type = CJSON_VALUE_TYPE_NUMBER; value.n = code;
 	if ( !cjson_add_in_object(object, "error_code", value) ) {
 		warn("failed to cjson_add_in_object()");
-		return ;
+		goto DESTROY_OBJECT;
 	}
 
 	value.type = CJSON_VALUE_TYPE_STRING; value.s = (char *) reason;
 	if ( !cjson_add_in_object(object, "error_message", value) ) {
 		warn("failed to cjson_add_in_object()");
-		return ;
+		goto DESTROY_OBJECT;
 	}
 
 	session_render_template(session, code, "error.ctml", object);
 
-	cjson_destroy_object(object);
+DESTROY_OBJECT: cjson_destroy_object(object);
 }
 
 int render_pages(Session session, char *request)
